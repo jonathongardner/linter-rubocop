@@ -1,7 +1,7 @@
 'use babel'
 
 // eslint-disable-next-line import/extensions, import/no-extraneous-dependencies
-import { CompositeDisposable } from 'atom'
+import { CompositeDisposable, File } from 'atom'
 import getRuleMarkDown from './rule-helpers'
 
 const DEFAULT_ARGS = [
@@ -45,10 +45,10 @@ const parseFromStd = (stdout, stderr) => {
 const getProjectDirectory = filePath => (
   atom.project.relativizePath(filePath)[0] || path.dirname(filePath))
 
-const getRubocopBaseCommand = command => command
-  .split(/\s+/)
-  .filter(i => i)
-  .concat(DEFAULT_ARGS)
+const getRubocopBaseCommand = (commands, passedPath) => {
+  const commandAndProjectPath = commands.find(capp => path.relative(capp[1], passedPath))
+  return commandAndProjectPath[0].split(/\s+/).filter(i => i).concat(DEFAULT_ARGS)
+}
 
 const forwardRubocopToLinter = (version, {
   message: rawMessage, location, severity, cop_name: copName,
@@ -89,6 +89,33 @@ const forwardRubocopToLinter = (version, {
 
   return linterMessage
 }
+const getValueFromFile = async (fullPath, prefix = '') => {
+  const file = new File(fullPath)
+  const fileValue = await file.read()
+  if (fileValue) {
+    const toReturn = fileValue.split('\n')[0]
+    if (toReturn) { // So prefix isnt added to empty string
+      return `${prefix}${toReturn}`
+    }
+  }
+  return ''
+}
+
+const getWorkspaceCommands = async (command, useRVMForVersionAndGemsetFile) => {
+  loadDeps()
+  const toReturnPromise = atom.project.getPaths().map(async (projectPath) => {
+    if (command === 'rubocop' && useRVMForVersionAndGemsetFile) {
+      const rubyVersion = await getValueFromFile(path.join(projectPath, '.ruby-version'))
+      const rubyGemset = await getValueFromFile(path.join(projectPath, '.ruby-gemset'), '@')
+      if (rubyVersion || rubyGemset) {
+        const rubyVersionGemset = `${rubyVersion || 'default'}${rubyGemset}`
+        return [`rvm ${rubyVersionGemset} do ${command}`, projectPath]
+      }
+    }
+    return [command, projectPath]
+  })
+  return Promise.all(toReturnPromise)
+}
 
 export default {
   activate() {
@@ -121,18 +148,26 @@ export default {
           if (!filePath) { return null }
 
           const cwd = getProjectDirectory(filePath)
-          const command = getRubocopBaseCommand(this.command).concat('--auto-correct')
+          const command = getRubocopBaseCommand(this.commands, filePath).concat('--auto-correct')
           command.push(filePath)
 
-          const { stdout, stderr } = await helpers.exec(command[0], command.slice(1), { cwd, stream: 'both' })
+          const { stdout, stderr } = await helpers.exec(command[0], command.slice(1), { cwd, stream: 'both', env: this.env })
           const { summary: { offense_count: offenseCount } } = parseFromStd(stdout, stderr)
           return offenseCount === 0
             ? atom.notifications.addInfo('Linter-Rubocop: No fixes were made')
             : atom.notifications.addSuccess(`Linter-Rubocop: Fixed ${pluralize('offenses', offenseCount, true)}`)
         },
       }),
-      atom.config.observe('linter-rubocop.command', (value) => {
-        this.command = value
+      atom.config.observe('linter-rubocop.command', async (value) => {
+        const useRVMForVersionAndGemsetFile = atom.config.get('linter-rubocop.useRVMForVersionAndGemsetFile')
+        this.env = this.checkForRVMFile ? { rvm_silence_path_mismatch_check_flag: '1' } : {}
+        this.commands = await getWorkspaceCommands(value, useRVMForVersionAndGemsetFile)
+      }),
+      atom.config.onDidChange('linter-rubocop.useRVMForVersionAndGemsetFile', async (value) => {
+        const command = atom.config.get('linter-rubocop.command')
+        const useRVMForVersionAndGemsetFile = value.newValue
+        this.env = useRVMForVersionAndGemsetFile ? { rvm_silence_path_mismatch_check_flag: '1' } : {}
+        this.commands = await getWorkspaceCommands(command, useRVMForVersionAndGemsetFile)
       }),
       atom.config.observe('linter-rubocop.disableWhenNoConfigFile', (value) => {
         this.disableWhenNoConfigFile = value
@@ -175,7 +210,7 @@ export default {
         }
 
         const cwd = getProjectDirectory(filePath)
-        const command = getRubocopBaseCommand(this.command)
+        const command = getRubocopBaseCommand(this.commands, filePath)
         command.push('--stdin', filePath)
         const stdin = editor.getText()
         const exexOptions = {
@@ -184,6 +219,7 @@ export default {
           stream: 'both',
           timeout: 10000,
           uniqueKey: `linter-rubocop::${filePath}`,
+          env: this.env,
         }
 
         let output

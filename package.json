@@ -15,6 +15,12 @@
       "default": "rubocop",
       "description": "This is the absolute path to your `rubocop` command. You may need to run `which rubocop` or `rbenv which rubocop` to find this. Examples: `/usr/local/bin/rubocop` or `/usr/local/bin/bundle exec rubocop --config /my/rubocop.yml`."
     },
+    "useRVMForVersionAndGemsetFile": {
+      "type": "boolean",
+      "title": "Use rvm for project specified ruby version and/or gemset to ",
+      "default": false,
+      "description": "Check if project folder specifies ruby version and/or gemset files (.ruby-version, .ruby-gemset) and use `rvm ruby-version(@ruby-gemset?) do rubocop`."
+    },
     "disableWhenNoConfigFile": {
       "type": "boolean",
       "title": "Disable when no .rubocop.yml config file is found",

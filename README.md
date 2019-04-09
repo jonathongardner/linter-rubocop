@@ -60,6 +60,20 @@ To:
 "linter-rubocop":
   command: "/Users/JohnDoe/.rvm/gems/ruby-2.2.4@global/wrappers/rubocop"
 ```
+
+If you want to use different version of rubocop for different projects add the following:
+
+```cson
+"linter-rubocop":
+  useRVMForVersionAndGemsetFile: true
+```
+
+This will search for `.ruby-version` and/or `.ruby-gemset` files in projects workspace. If one is found for that project the following command will be used to run rubocop in that project only:
+```shell
+rvm ruby-version(@ruby-gemset?) do rubocop
+```
+`default` will be used if there is no `.ruby-version` file and `@ruby-gemset` will be left blank if there is no `.ruby-gemset` file.
+
 ### Using `rbenv`
 
 If you're using `rbenv`, it's recommended that you set your `command` to point to the Rubocop shim. This way, when you upgrade Ruby, the command will be a pointer to a Rubocop executable, regardless of your current Ruby version.
